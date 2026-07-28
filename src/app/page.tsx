@@ -116,6 +116,22 @@ export default function Dashboard() {
               <LedgerTable />
             </div>
           </div>
+
+          {/* Low stock alert strip */}
+          <div className="mt-[18px] bg-pending-bg border border-[#E4CE96] rounded-lg px-[18px] py-3.5 flex items-center gap-3.5">
+            <div className="w-[30px] h-[30px] rounded-full bg-surface flex items-center justify-center text-[15px] flex-none border-[1.5px] border-pending text-pending font-bold">
+              !
+            </div>
+            <div className="flex-1">
+              <div className="font-semibold text-[13.5px] text-[#7A5A17]">5 items are below their reorder threshold</div>
+              <div className="text-xs text-[#8C7238] mt-0.5">Restock soon to avoid stockouts on your next sale.</div>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <span className="bg-surface border border-[#E4CE96] px-2.5 py-1 rounded-[14px] text-[11.5px] font-mono text-[#7A5A17]">Basmati Rice 5kg — 3 left</span>
+              <span className="bg-surface border border-[#E4CE96] px-2.5 py-1 rounded-[14px] text-[11.5px] font-mono text-[#7A5A17]">Sunflower Oil 1L — 6 left</span>
+              <span className="bg-surface border border-[#E4CE96] px-2.5 py-1 rounded-[14px] text-[11.5px] font-mono text-[#7A5A17]">Toor Dal 1kg — 4 left</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
