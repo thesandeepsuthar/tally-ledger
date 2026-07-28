@@ -71,7 +71,35 @@ export default function Dashboard() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 p-[30px] pb-[60px]" />
+        <div className="flex-1 p-[30px] pb-[60px]">
+          {/* Stats cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-[14px] mb-[26px]">
+            <div className="bg-surface border border-rule rounded-lg px-[18px] py-4 relative overflow-hidden">
+              <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-green" />
+              <div className="text-[11px] uppercase tracking-[0.09em] text-muted font-semibold">Total Revenue (MTD)</div>
+              <div className="font-mono text-2xl font-semibold mt-2 tracking-tight">₹4,82,340</div>
+              <div className="text-[11.5px] mt-1.5 font-mono text-credit">↑ 6.2% vs last month</div>
+            </div>
+            <div className="bg-surface border border-rule rounded-lg px-[18px] py-4 relative overflow-hidden">
+              <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-debit" />
+              <div className="text-[11px] uppercase tracking-[0.09em] text-muted font-semibold">Outstanding Balance</div>
+              <div className="font-mono text-2xl font-semibold mt-2 tracking-tight">₹63,120</div>
+              <div className="text-[11.5px] mt-1.5 font-mono text-debit">↑ 12 unpaid invoices</div>
+            </div>
+            <div className="bg-surface border border-rule rounded-lg px-[18px] py-4 relative overflow-hidden">
+              <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-pending" />
+              <div className="text-[11px] uppercase tracking-[0.09em] text-muted font-semibold">Low Stock Alerts</div>
+              <div className="font-mono text-2xl font-semibold mt-2 tracking-tight">5</div>
+              <div className="text-[11.5px] mt-1.5 font-mono text-muted">items below threshold</div>
+            </div>
+            <div className="bg-surface border border-rule rounded-lg px-[18px] py-4 relative overflow-hidden">
+              <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-flag" />
+              <div className="text-[11px] uppercase tracking-[0.09em] text-muted font-semibold">Unreconciled Entries</div>
+              <div className="font-mono text-2xl font-semibold mt-2 tracking-tight">3</div>
+              <div className="text-[11.5px] mt-1.5 font-mono text-muted">flagged for review</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
