@@ -1,4 +1,5 @@
 import TransactionForm from "@/components/TransactionForm";
+import LedgerTable from "@/components/LedgerTable";
 
 export default function Dashboard() {
   return (
@@ -112,6 +113,7 @@ export default function Dashboard() {
                   <h2 className="font-serif font-semibold text-[15.5px]">Ledger</h2>
                 </div>
               </div>
+              <LedgerTable />
             </div>
           </div>
         </div>

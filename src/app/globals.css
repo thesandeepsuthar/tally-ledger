@@ -28,3 +28,54 @@ body {
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
 }
+
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-plex-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 3px 9px 3px 8px;
+  border-radius: 3px;
+  border: 1.5px solid;
+  position: relative;
+}
+.stamp::after {
+  content: '';
+  position: absolute;
+  inset: 1.5px;
+  border: 1px solid;
+  border-radius: 2px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.stamp-reconciled {
+  color: var(--color-credit);
+  border-color: var(--color-credit);
+  background: var(--color-credit-bg);
+  transform: rotate(-1.3deg);
+}
+.stamp-reconciled::after {
+  border-color: var(--color-credit);
+}
+.stamp-pending {
+  color: var(--color-pending);
+  border-color: var(--color-pending);
+  background: var(--color-pending-bg);
+  transform: rotate(1deg);
+}
+.stamp-pending::after {
+  border-color: var(--color-pending);
+}
+.stamp-flagged {
+  color: var(--color-flag);
+  border-color: var(--color-flag);
+  background: var(--color-flag-bg);
+  transform: rotate(-0.6deg);
+}
+.stamp-flagged::after {
+  border-color: var(--color-flag);
+}
