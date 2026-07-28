@@ -1,3 +1,5 @@
+import TransactionForm from "@/components/TransactionForm";
+
 export default function Dashboard() {
   return (
     <div className="flex min-h-screen font-sans text-sm">
@@ -97,6 +99,19 @@ export default function Dashboard() {
               <div className="text-[11px] uppercase tracking-[0.09em] text-muted font-semibold">Unreconciled Entries</div>
               <div className="font-mono text-2xl font-semibold mt-2 tracking-tight">3</div>
               <div className="text-[11.5px] mt-1.5 font-mono text-muted">flagged for review</div>
+            </div>
+          </div>
+
+          {/* Panels: Entry form + Ledger */}
+          <div className="grid grid-cols-[400px_1fr] max-lg:grid-cols-1 gap-[18px] items-start">
+            <TransactionForm />
+            <div className="bg-surface border border-rule rounded-lg" id="ledger-panel">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-rule">
+                <div>
+                  <div className="text-[10.5px] tracking-[0.1em] uppercase text-faint font-semibold">History</div>
+                  <h2 className="font-serif font-semibold text-[15.5px]">Ledger</h2>
+                </div>
+              </div>
             </div>
           </div>
         </div>
