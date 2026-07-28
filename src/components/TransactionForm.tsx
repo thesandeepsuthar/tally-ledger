@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 const ITEMS = ['Basmati Rice 5kg', 'Sunflower Oil 1L', 'Toor Dal 1kg', 'Tata Salt 1kg', 'Amul Butter 500g'];
 
@@ -32,7 +32,11 @@ export default function TransactionForm() {
     { id: 'li1', name: 'Basmati Rice 5kg', qty: 2, rate: 250 },
     { id: 'li2', name: 'Sunflower Oil 1L', qty: 1, rate: 100 },
   ]);
-  const [idemKey, setIdemKey] = useState(genKey);
+  const [idemKey, setIdemKey] = useState('');
+
+  useEffect(() => {
+    setIdemKey(genKey());
+  }, []);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
@@ -226,7 +230,7 @@ export default function TransactionForm() {
 
           <div className="text-[10.5px] text-faint font-mono bg-[#F6F7F1] border border-rule rounded-[5px] px-[9px] py-[7px] my-3.5">
             <b className="text-muted font-sans font-semibold uppercase tracking-[0.05em] text-[9.5px] block mb-1">Idempotency key (auto)</b>
-            <span>{idemKey}</span> — retried submits with this key won't double-post
+            <span suppressHydrationWarning>{idemKey}</span> — retried submits with this key won't double-post
           </div>
 
           <div className="flex gap-2.5 mt-1">
