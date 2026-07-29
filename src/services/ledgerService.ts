@@ -135,7 +135,7 @@ export class LedgerService {
       query = query.where("t.transaction_date", "<=", end_date);
     }
 
-    const total = await query.clone().count("* as count").first();
+    const total = await query.clone().clearSelect().count("* as count").first();
     const entries = await query
       .orderBy("t.transaction_date", "desc")
       .orderBy("le.created_at", "desc")
