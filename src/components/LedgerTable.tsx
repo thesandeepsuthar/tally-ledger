@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { fetchLedger, type LedgerEntry } from '@/lib/api';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { fetchLedger, ApiError, type LedgerEntry } from '@/lib/api';
 
 function fmt(n: number | string): string {
   const num = typeof n === 'string' ? parseFloat(n) : n;
@@ -28,9 +28,24 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
+const SKELETON_WIDTHS = ['55%', '35%', '45%', '60%', '30%', '40%', '40%', '50%'];
+
+function SkeletonRow() {
+  return (
+    <tr>
+      {SKELETON_WIDTHS.map((w, i) => (
+        <td key={i} className="px-5 py-[11px] border-b border-rule">
+          <div className="animate-pulse bg-[#E8E8E0] rounded h-3" style={{ width: w }} />
+        </td>
+      ))}
+    </tr>
+  );
+}
+
 export default function LedgerTable({ refresh }: { refresh?: number }) {
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [query, setQuery] = useState('');
@@ -38,9 +53,11 @@ export default function LedgerTable({ refresh }: { refresh?: number }) {
   const [endDate, setEndDate] = useState('');
   const [sortField, setSortField] = useState<string>('transaction_date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
+  const loadEntries = useCallback(() => {
     setLoading(true);
+    setLoadError('');
     fetchLedger({
       page,
       limit: 10,
@@ -53,10 +70,18 @@ export default function LedgerTable({ refresh }: { refresh?: number }) {
         setLoading(false);
       })
       .catch(err => {
-        console.error('Failed to fetch ledger:', err);
+        setLoadError(err instanceof ApiError ? err.message : 'Failed to load ledger');
         setLoading(false);
       });
-  }, [page, refresh, startDate, endDate]);
+  }, [page, startDate, endDate]);
+
+  useEffect(() => {
+    loadEntries();
+  }, [loadEntries, refresh]);
+
+  const handleSearch = (value: string) => {
+    setQuery(value);
+  };
 
   const handleSort = (field: string) => {
     if (sortField === field) {
@@ -98,7 +123,7 @@ export default function LedgerTable({ refresh }: { refresh?: number }) {
           className="flex-1 min-w-[140px] px-3 py-2 border border-rule-strong rounded-lg text-sm bg-[#FCFCFA]"
           placeholder="Search reference, account or description…"
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={e => handleSearch(e.target.value)}
         />
         <input
           type="date"
@@ -115,15 +140,46 @@ export default function LedgerTable({ refresh }: { refresh?: number }) {
           title="End date"
         />
       </div>
-      
+
       <div className="overflow-x-auto">
-        {loading ? (
-          <div className="text-center py-12 text-muted">Loading ledger entries...</div>
-        ) : filtered.length === 0 ? (
+        {loading && (
+          <table className="w-full border-collapse">
+            <thead>
+              <tr>
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <th key={i} className="px-5 py-2.5 border-b border-rule bg-[#FAFBF7]">
+                    <div className="animate-pulse bg-[#D8D8D0] rounded h-2.5 w-12" />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <SkeletonRow key={i} />
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {!loading && loadError && (
+          <div className="text-center py-12">
+            <div className="text-muted mb-3">{loadError}</div>
+            <button
+              className="px-4 py-2 border border-rule-strong rounded-lg text-sm font-semibold cursor-pointer bg-surface text-muted hover:bg-[#F6F7F1]"
+              onClick={() => { setPage(1); loadEntries(); }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!loading && !loadError && filtered.length === 0 && (
           <div className="text-center py-12 text-muted">
             {entries.length === 0 ? 'No ledger entries yet. Create your first transaction!' : 'No matching entries found.'}
           </div>
-        ) : (
+        )}
+
+        {!loading && !loadError && filtered.length > 0 && (
           <table className="w-full border-collapse">
             <thead>
               <tr>
@@ -178,14 +234,14 @@ export default function LedgerTable({ refresh }: { refresh?: number }) {
           </table>
         )}
       </div>
-      
+
       <div className="flex items-center justify-between px-5 py-3.5 border-t border-rule text-xs text-muted">
         <span>Page {page} of {totalPages || 1}</span>
         <div className="flex gap-1.5">
-          <button 
-            className="w-7 h-7 border border-rule-strong bg-surface rounded-[5px] cursor-pointer text-xs text-muted font-mono disabled:opacity-40 disabled:cursor-not-allowed" 
+          <button
+            className="w-7 h-7 border border-rule-strong bg-surface rounded-[5px] cursor-pointer text-xs text-muted font-mono disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page === 1}
+            disabled={page === 1 || loading}
           >
             ‹
           </button>
@@ -195,20 +251,21 @@ export default function LedgerTable({ refresh }: { refresh?: number }) {
               <button
                 key={pageNum}
                 className={`w-7 h-7 border rounded-[5px] cursor-pointer text-xs font-mono ${
-                  page === pageNum 
-                    ? 'border-ink bg-ink text-white' 
+                  page === pageNum
+                    ? 'border-ink bg-ink text-white'
                     : 'border-rule-strong bg-surface text-muted'
                 }`}
                 onClick={() => setPage(pageNum)}
+                disabled={loading}
               >
                 {pageNum}
               </button>
             );
           })}
-          <button 
-            className="w-7 h-7 border border-rule-strong bg-surface rounded-[5px] cursor-pointer text-xs text-muted font-mono disabled:opacity-40 disabled:cursor-not-allowed" 
+          <button
+            className="w-7 h-7 border border-rule-strong bg-surface rounded-[5px] cursor-pointer text-xs text-muted font-mono disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages || totalPages === 0}
+            disabled={page === totalPages || totalPages === 0 || loading}
           >
             ›
           </button>

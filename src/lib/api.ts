@@ -1,5 +1,3 @@
-// API client for backend communication
-
 export interface Account {
   id: string;
   code: string;
@@ -85,35 +83,60 @@ export interface FinancialSummary {
   generated_at: string;
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 const API_BASE = "/api/v1";
+const REQUEST_TIMEOUT = 15000;
+
+async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      let message = `Request failed with status ${res.status}`;
+      try {
+        const body = await res.json();
+        message = body.error || message;
+      } catch {}
+      throw new ApiError(message, res.status);
+    }
+
+    return res.json();
+  } catch (err: any) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") {
+      throw new ApiError("Request timed out", 0);
+    }
+    throw err;
+  }
+}
 
 export async function fetchAccounts(): Promise<Account[]> {
-  const res = await fetch(`${API_BASE}/accounts`);
-  if (!res.ok) throw new Error("Failed to fetch accounts");
-  return res.json();
+  return request<Account[]>(`${API_BASE}/accounts`);
 }
 
 export async function fetchInventory(lowStock?: boolean): Promise<InventoryItem[]> {
   const url = lowStock ? `${API_BASE}/inventory?low_stock=true` : `${API_BASE}/inventory`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch inventory");
-  return res.json();
+  return request<InventoryItem[]>(url);
 }
 
 export async function createTransaction(data: CreateTransactionRequest) {
-  const res = await fetch(`${API_BASE}/transactions`, {
+  return request(`${API_BASE}/transactions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  
-  const json = await res.json();
-  
-  if (!res.ok) {
-    throw new Error(json.error || "Failed to create transaction");
-  }
-  
-  return json;
 }
 
 export async function fetchLedger(params?: {
@@ -131,9 +154,7 @@ export async function fetchLedger(params?: {
   if (params?.limit) searchParams.set("limit", params.limit.toString());
 
   const url = `${API_BASE}/ledger${searchParams.toString() ? `?${searchParams}` : ""}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch ledger");
-  return res.json();
+  return request<{ entries: LedgerEntry[]; pagination: { page: number; limit: number; total: number; pages: number } }>(url);
 }
 
 export async function fetchSummary(params?: {
@@ -145,13 +166,9 @@ export async function fetchSummary(params?: {
   if (params?.end_date) searchParams.set("end_date", params.end_date);
 
   const url = `${API_BASE}/reports/summary${searchParams.toString() ? `?${searchParams}` : ""}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch summary");
-  return res.json();
+  return request<FinancialSummary>(url);
 }
 
 export async function checkHealth() {
-  const res = await fetch("/api/health");
-  if (!res.ok) throw new Error("Health check failed");
-  return res.json();
+  return request<{ status: string; database: string }>("/api/health");
 }
