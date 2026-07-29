@@ -1,7 +1,8 @@
-import db from "@/db/knex";
-import { Knex } from "knex";
+import { ClientSession, Types } from "mongoose";
+import { InventoryItem } from "@/db/models/InventoryItem";
+import { InventoryMovement } from "@/db/models/InventoryMovement";
 
-export interface InventoryMovement {
+export interface InventoryMovementInput {
   inventory_item_id: string;
   quantity: number;
   movement_type: "sale" | "purchase" | "adjustment" | "return";
@@ -11,15 +12,15 @@ export interface InventoryMovement {
 
 export class InventoryService {
   static async updateInventory(
-    movements: InventoryMovement[],
+    movements: InventoryMovementInput[],
     transaction_id: string,
-    trx: Knex.Transaction
+    session?: ClientSession
   ): Promise<void> {
+    const sessionOption = session ? { session } : {};
+    const txId = new Types.ObjectId(transaction_id);
+
     for (const movement of movements) {
-      const item = await trx("inventory_items")
-        .where("id", movement.inventory_item_id)
-        .forUpdate()
-        .first();
+      const item = await InventoryItem.findById(movement.inventory_item_id, null, sessionOption);
 
       if (!item) {
         throw new Error(`Inventory item ${movement.inventory_item_id} not found`);
@@ -30,39 +31,50 @@ export class InventoryService {
         quantityChange = -Math.abs(movement.quantity);
       }
 
-      const newQuantity = item.quantity + quantityChange;
+      const updatedItem = await InventoryItem.findOneAndUpdate(
+        {
+          _id: item._id,
+          quantity: { $gte: Math.abs(quantityChange) },
+        },
+        { $inc: { quantity: quantityChange } },
+        { new: true, ...sessionOption }
+      );
 
-      if (newQuantity < 0) {
+      if (!updatedItem) {
         throw new Error(
           `Insufficient stock for item ${item.name}. Available: ${item.quantity}, Requested: ${Math.abs(quantityChange)}`
         );
       }
 
-      await trx("inventory_items")
-        .where("id", movement.inventory_item_id)
-        .update({
-          quantity: newQuantity,
-          updated_at: new Date(),
-        });
+      const quantityBefore = updatedItem.quantity - quantityChange;
+      const quantityAfter = updatedItem.quantity;
 
-      await trx("inventory_movements").insert({
-        inventory_item_id: movement.inventory_item_id,
-        transaction_id,
-        movement_type: movement.movement_type,
-        quantity: quantityChange,
-        quantity_before: item.quantity,
-        quantity_after: newQuantity,
-        unit_cost: movement.unit_cost || item.cost_price,
-        notes: movement.notes,
-        movement_date: new Date(),
-      });
+      await InventoryMovement.create(
+        [{
+          inventory_item_id: item._id,
+          transaction_id: txId,
+          movement_type: movement.movement_type,
+          quantity: quantityChange,
+          quantity_before: quantityBefore,
+          quantity_after: quantityAfter,
+          unit_cost: movement.unit_cost || item.cost_price,
+          notes: movement.notes,
+          movement_date: new Date(),
+        }],
+        { ...sessionOption, ordered: true }
+      );
     }
   }
 
   static async getLowStockItems(threshold?: number): Promise<any[]> {
-    return db("inventory_items")
-      .where("is_active", true)
-      .whereRaw("quantity <= COALESCE(reorder_level, ?)", [threshold || 10])
-      .select("*");
+    return InventoryItem.aggregate([
+      { $match: { is_active: true } },
+      {
+        $addFields: {
+          effective_reorder_level: { $ifNull: ["$reorder_level", threshold ?? 10] },
+        },
+      },
+      { $match: { $expr: { $lte: ["$quantity", "$effective_reorder_level"] } } },
+    ]);
   }
 }

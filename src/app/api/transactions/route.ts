@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/db/knex";
+import { withDB } from "@/lib/api-handler";
+import { Transaction } from "@/db/models/Transaction";
 
-export async function GET() {
-  try {
-    const transactions = await db("transactions").select("*").orderBy("transaction_date", "desc");
-    return NextResponse.json(transactions);
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
-  }
-}
+export const GET = withDB(async () => {
+  const transactions = await Transaction.find().sort({ transaction_date: -1 });
+  return NextResponse.json(transactions);
+});
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const [transaction] = await db("transactions").insert(body).returning("*");
-    return NextResponse.json(transaction, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 400 });
-  }
-}
+export const POST = withDB(async (request: NextRequest) => {
+  const body = await request.json();
+  const transaction = await Transaction.create(body);
+  return NextResponse.json(transaction, { status: 201 });
+});

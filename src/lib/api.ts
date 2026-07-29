@@ -32,6 +32,7 @@ export interface LedgerEntry {
   transaction_number?: string;
   transaction_date: string;
   transaction_description?: string;
+  status?: string;
   account_code: string;
   account_name: string;
   account_type: string;
