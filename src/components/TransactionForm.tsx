@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { 
-  fetchAccounts, 
-  fetchInventory, 
-  createTransaction, 
-  type Account, 
+import { ApiError } from '@/lib/api';
+import {
+  fetchAccounts,
+  fetchInventory,
+  createTransaction,
+  type Account,
   type InventoryItem,
   type TransactionEntry,
   type InventoryMovement,
@@ -19,15 +20,21 @@ interface LineItem {
   rate: number;
 }
 
-let counter = 2;
-
 function fmt(n: number): string {
   return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function genKey(): string {
-  const hex = () => Math.random().toString(16).slice(2, 10);
-  return 'txn_' + hex() + '-' + hex().slice(0, 4);
+  return 'txn_' + crypto.randomUUID().slice(0, 18);
+}
+
+function SkeletonBlock({ height = 12, width = '100%' }: { height?: number; width?: string }) {
+  return (
+    <div
+      className="animate-pulse bg-[#E8E8E0] rounded"
+      style={{ height, width, maxWidth: width }}
+    />
+  );
 }
 
 export default function TransactionForm({ onSuccess }: { onSuccess?: () => void }) {
@@ -37,18 +44,22 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
   const [gstRate, setGstRate] = useState(0.18);
   const [payStatus, setPayStatus] = useState('Pending');
   const [lines, setLines] = useState<LineItem[]>([
-    { id: 'li1', name: '', qty: 1, rate: 0 },
+    { id: crypto.randomUUID(), name: '', qty: 1, rate: 0 },
   ]);
   const [idemKey, setIdemKey] = useState('');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
+    setLoading(true);
+    setLoadError('');
     setIdemKey(genKey());
     Promise.all([fetchAccounts(), fetchInventory()])
       .then(([accts, inv]) => {
@@ -57,16 +68,18 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
         setLoading(false);
       })
       .catch(err => {
-        console.error('Failed to load data:', err);
-        setError('Failed to load accounts and inventory');
+        setLoadError(err instanceof ApiError ? err.message : 'Failed to load accounts and inventory');
         setLoading(false);
       });
   }, []);
 
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
   const addLine = useCallback(() => {
-    counter++;
     setLines(prev => [...prev, {
-      id: 'li' + counter,
+      id: crypto.randomUUID(),
       name: '',
       qty: 1,
       rate: 0,
@@ -80,7 +93,7 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
   const updateLine = useCallback((id: string, field: keyof LineItem, value: string | number) => {
     setLines(prev => prev.map(l => {
       if (l.id !== id) return l;
-      
+
       if (field === 'name' && typeof value === 'string') {
         const item = inventory.find(i => i.name === value || i.sku === value);
         if (item) {
@@ -92,14 +105,22 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
           };
         }
       }
-      
+
       return { ...l, [field]: value };
     }));
+    setFieldErrors(prev => {
+      const next = { ...prev };
+      delete next[`${id}.${field}`];
+      return next;
+    });
   }, [inventory, type]);
 
   const subtotal = lines.reduce((sum, l) => sum + l.qty * l.rate, 0);
   const gst = subtotal * gstRate;
   const total = subtotal + gst;
+
+  const hasInvalidLines = lines.some(l => !l.name.trim() || l.qty < 1 || l.rate <= 0);
+  const canSubmit = party.trim().length > 0 && lines.length > 0 && !hasInvalidLines && !submitting;
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -107,15 +128,24 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
     setTimeout(() => setToastVisible(false), 3200);
   };
 
+  const validate = (): boolean => {
+    const errors: Record<string, string> = {};
+    if (!party.trim()) errors.party = 'Party name is required';
+    lines.forEach((l, i) => {
+      if (!l.name.trim()) errors[`line_${i}_name`] = 'Select an item';
+      if (l.qty < 1) errors[`line_${i}_qty`] = 'Qty must be at least 1';
+      if (l.rate <= 0) errors[`line_${i}_rate`] = 'Rate must be greater than 0';
+    });
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSubmit = async () => {
-    if (!party.trim()) {
-      setError('Party name is required');
-      return;
-    }
+    if (!validate()) return;
 
     setSubmitting(true);
     setError('');
-    
+
     try {
       const cashAccount = accounts.find(a => a.code === '1000');
       const revenueAccount = accounts.find(a => a.code === '4000');
@@ -123,14 +153,14 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
       const inventoryAccount = accounts.find(a => a.code === '1300');
       const receivableAccount = accounts.find(a => a.code === '1200');
       const payableAccount = accounts.find(a => a.code === '2000');
-      
+
       if (!cashAccount || !revenueAccount || !cogsAccount || !inventoryAccount) {
         throw new Error('Required accounts not found. Please run seed data.');
       }
 
       const entries: TransactionEntry[] = [];
       const movements: InventoryMovement[] = [];
-      
+
       if (type === 'sale') {
         entries.push({
           account_id: payStatus === 'Paid' ? cashAccount.id : receivableAccount?.id || cashAccount.id,
@@ -144,12 +174,12 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
           amount: total,
           description: 'Sales revenue',
         });
-        
+
         const totalCost = lines.reduce((sum, l) => {
           const item = inventory.find(i => i.id === l.inventory_item_id);
           return sum + (item ? item.cost_price * l.qty : 0);
         }, 0);
-        
+
         if (totalCost > 0) {
           entries.push({
             account_id: cogsAccount.id,
@@ -164,7 +194,7 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
             description: 'Inventory reduction',
           });
         }
-        
+
         lines.forEach(line => {
           if (line.inventory_item_id && line.qty > 0) {
             movements.push({
@@ -188,7 +218,7 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
           amount: subtotal,
           description: `Payment ${payStatus === 'Paid' ? 'made' : 'pending'} to ${party}`,
         });
-        
+
         lines.forEach(line => {
           if (line.inventory_item_id && line.qty > 0) {
             movements.push({
@@ -212,7 +242,7 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
         inventory_movements: movements.length > 0 ? movements : undefined,
         metadata: { party, gst_rate: gstRate, payment_status: payStatus },
       });
-      
+
       showToast('Transaction posted — inventory and ledger updated atomically.');
       setIdemKey(genKey());
       handleReset();
@@ -226,8 +256,9 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
 
   const handleReset = () => {
     setParty('');
-    setLines([{ id: 'li' + ++counter, name: '', qty: 1, rate: 0 }]);
+    setLines([{ id: crypto.randomUUID(), name: '', qty: 1, rate: 0 }]);
     setError('');
+    setFieldErrors({});
   };
 
   return (
@@ -255,15 +286,42 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
         </div>
         <div className="p-5">
           {loading && (
-            <div className="text-center py-8 text-muted">Loading accounts and inventory...</div>
+            <div className="space-y-4 animate-pulse">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1.5"><SkeletonBlock height={10} width="40%" /><SkeletonBlock height={34} /></div>
+                <div className="space-y-1.5"><SkeletonBlock height={10} width="20%" /><SkeletonBlock height={34} /></div>
+              </div>
+              <div className="space-y-1.5"><SkeletonBlock height={10} width="30%" /><SkeletonBlock height={80} /></div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1.5"><SkeletonBlock height={10} width="30%" /><SkeletonBlock height={34} /></div>
+                <div className="space-y-1.5"><SkeletonBlock height={10} width="35%" /><SkeletonBlock height={34} /></div>
+              </div>
+              <SkeletonBlock height={50} />
+            </div>
           )}
-          {!loading && (
+
+          {!loading && loadError && (
+            <div className="text-center py-8">
+              <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                {loadError}
+              </div>
+              <button
+                className="px-4 py-2 border border-rule-strong rounded-lg text-sm font-semibold cursor-pointer bg-surface text-muted hover:bg-[#F6F7F1]"
+                onClick={loadData}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {!loading && !loadError && (
             <>
               {error && (
                 <div className="mb-3.5 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
                   {error}
                 </div>
               )}
+
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="mb-3.5">
                   <label className="block text-[11.5px] font-semibold text-muted uppercase tracking-[0.05em] mb-1">Party name</label>
@@ -271,9 +329,10 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
                     type="text"
                     placeholder="e.g. Anand Traders"
                     value={party}
-                    onChange={e => setParty(e.target.value)}
-                    className="w-full px-2.5 py-2 border border-rule-strong rounded-[5px] text-[13.5px] bg-[#FCFCFA] text-ink focus:outline-2 focus:outline-green focus:outline-offset-1 focus:border-green"
+                    onChange={e => { setParty(e.target.value); setFieldErrors(prev => { const n = { ...prev }; delete n.party; return n; }); }}
+                    className={`w-full px-2.5 py-2 border rounded-[5px] text-[13.5px] bg-[#FCFCFA] text-ink focus:outline-2 focus:outline-green focus:outline-offset-1 focus:border-green ${fieldErrors.party ? 'border-red-400 bg-red-50' : 'border-rule-strong'}`}
                   />
+                  {fieldErrors.party && <div className="text-[11px] text-red-600 mt-0.5">{fieldErrors.party}</div>}
                 </div>
                 <div className="mb-3.5">
                   <label className="block text-[11.5px] font-semibold text-muted uppercase tracking-[0.05em] mb-1">Date</label>
@@ -292,35 +351,43 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
                   <div className="grid grid-cols-[1fr_46px_70px_74px_24px] gap-1.5 items-center px-2 py-[7px] bg-[#F6F7F1] text-[10px] uppercase tracking-[0.06em] text-faint font-semibold border-b border-rule">
                     <div>Item</div><div>Qty</div><div>Rate</div><div>Amount</div><div></div>
                   </div>
-                  {lines.map(line => (
+                  {lines.map((line, idx) => (
                     <div key={line.id} className="grid grid-cols-[1fr_46px_70px_74px_24px] gap-1.5 items-center px-2 py-[7px] border-b border-rule last:border-none text-[13px]">
-                      <input
-                        type="text"
-                        value={line.name}
-                        onChange={e => updateLine(line.id, 'name', e.target.value)}
-                        list="item-list"
-                        placeholder="Select item"
-                        className="w-full border border-transparent bg-transparent text-xs p-1 rounded focus:outline-none focus:border-rule-strong focus:bg-white"
-                      />
-                      <input
-                        type="number"
-                        value={line.qty}
-                        min={1}
-                        onChange={e => updateLine(line.id, 'qty', parseInt(e.target.value) || 0)}
-                        className="w-full border border-transparent bg-transparent text-xs p-1 rounded focus:outline-none focus:border-rule-strong focus:bg-white"
-                      />
-                      <input
-                        type="number"
-                        value={line.rate}
-                        min={0}
-                        step="any"
-                        onChange={e => updateLine(line.id, 'rate', parseFloat(e.target.value) || 0)}
-                        className="w-full border border-transparent bg-transparent text-xs p-1 rounded focus:outline-none focus:border-rule-strong focus:bg-white"
-                      />
+                      <div>
+                        <input
+                          type="text"
+                          value={line.name}
+                          onChange={e => updateLine(line.id, 'name', e.target.value)}
+                          list="item-list"
+                          placeholder="Select item"
+                          className={`w-full border bg-transparent text-xs p-1 rounded focus:outline-none focus:border-rule-strong focus:bg-white ${fieldErrors[`line_${idx}_name`] ? 'border-red-400 bg-red-50' : 'border-transparent'}`}
+                        />
+                        {fieldErrors[`line_${idx}_name`] && <div className="text-[10px] text-red-600 mt-0.5">{fieldErrors[`line_${idx}_name`]}</div>}
+                      </div>
+                      <div>
+                        <input
+                          type="number"
+                          value={line.qty}
+                          min={1}
+                          onChange={e => updateLine(line.id, 'qty', parseInt(e.target.value) || 0)}
+                          className={`w-full border bg-transparent text-xs p-1 rounded focus:outline-none focus:border-rule-strong focus:bg-white ${fieldErrors[`line_${idx}_qty`] ? 'border-red-400 bg-red-50' : 'border-transparent'}`}
+                        />
+                      </div>
+                      <div>
+                        <input
+                          type="number"
+                          value={line.rate}
+                          min={0}
+                          step="any"
+                          onChange={e => updateLine(line.id, 'rate', parseFloat(e.target.value) || 0)}
+                          className={`w-full border bg-transparent text-xs p-1 rounded focus:outline-none focus:border-rule-strong focus:bg-white ${fieldErrors[`line_${idx}_rate`] ? 'border-red-400 bg-red-50' : 'border-transparent'}`}
+                        />
+                      </div>
                       <div className="font-mono text-right text-ink">{fmt(line.qty * line.rate)}</div>
                       <button
-                        className="border-none bg-none text-faint cursor-pointer text-base leading-none hover:text-debit"
+                        className="border-none bg-none text-faint cursor-pointer text-base leading-none hover:text-debit disabled:opacity-30"
                         onClick={() => removeLine(line.id)}
+                        disabled={lines.length === 1}
                       >
                         ×
                       </button>
@@ -397,9 +464,14 @@ export default function TransactionForm({ onSuccess }: { onSuccess?: () => void 
                   Clear
                 </button>
                 <button
-                  className="flex-[2] px-3.5 py-2.5 rounded-lg border text-sm font-semibold cursor-pointer bg-green border-green text-white flex items-center justify-center gap-2 hover:bg-green-deep disabled:opacity-60 disabled:cursor-progress"
+                  className={`flex-[2] px-3.5 py-2.5 rounded-lg border text-sm font-semibold cursor-pointer flex items-center justify-center gap-2 ${
+                    canSubmit
+                      ? 'bg-green border-green text-white hover:bg-green-deep'
+                      : 'bg-[#E0E0D8] border-[#D0D0C8] text-[#999] cursor-not-allowed'
+                  }`}
                   onClick={handleSubmit}
-                  disabled={submitting}
+                  disabled={!canSubmit}
+                  title={!canSubmit ? 'Complete all line items with valid qty and rate' : ''}
                 >
                   {submitting && (
                     <div className="w-[13px] h-[13px] border-2 border-white/35 border-t-white rounded-full animate-spin" />
