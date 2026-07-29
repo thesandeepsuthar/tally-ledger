@@ -152,6 +152,7 @@ export class LedgerService {
           transaction_number: "$transaction.transaction_number",
           transaction_date: "$transaction.transaction_date",
           transaction_description: "$transaction.description",
+          status: "$transaction.status",
           account_code: "$account.code",
           account_name: "$account.name",
           account_type: "$account.type",

@@ -31,19 +31,23 @@ export class InventoryService {
         quantityChange = -Math.abs(movement.quantity);
       }
 
-      const newQuantity = item.quantity + quantityChange;
+      const updatedItem = await InventoryItem.findOneAndUpdate(
+        {
+          _id: item._id,
+          quantity: { $gte: Math.abs(quantityChange) },
+        },
+        { $inc: { quantity: quantityChange } },
+        { new: true, ...sessionOption }
+      );
 
-      if (newQuantity < 0) {
+      if (!updatedItem) {
         throw new Error(
           `Insufficient stock for item ${item.name}. Available: ${item.quantity}, Requested: ${Math.abs(quantityChange)}`
         );
       }
 
-      await InventoryItem.updateOne(
-        { _id: item._id },
-        { $set: { quantity: newQuantity } },
-        sessionOption
-      );
+      const quantityBefore = updatedItem.quantity - quantityChange;
+      const quantityAfter = updatedItem.quantity;
 
       await InventoryMovement.create(
         [{
@@ -51,13 +55,13 @@ export class InventoryService {
           transaction_id: txId,
           movement_type: movement.movement_type,
           quantity: quantityChange,
-          quantity_before: item.quantity,
-          quantity_after: newQuantity,
+          quantity_before: quantityBefore,
+          quantity_after: quantityAfter,
           unit_cost: movement.unit_cost || item.cost_price,
           notes: movement.notes,
           movement_date: new Date(),
         }],
-        sessionOption
+        { ...sessionOption, ordered: true }
       );
     }
   }

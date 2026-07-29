@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withDB } from "@/lib/api-handler";
 import { LedgerService } from "@/services/ledgerService";
 
-export async function GET(request: NextRequest) {
+export const GET = withDB(async (request: NextRequest) => {
   try {
     const searchParams = request.nextUrl.searchParams;
     
@@ -30,4 +31,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});
