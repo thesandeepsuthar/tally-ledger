@@ -1,33 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/db/knex";
+import { withDB } from "@/lib/api-handler";
+import { InventoryItem } from "@/db/models/InventoryItem";
 
-export async function GET(request: NextRequest) {
-  try {
-    const searchParams = request.nextUrl.searchParams;
-    const low_stock = searchParams.get("low_stock");
+export const GET = withDB(async (request: NextRequest) => {
+  const searchParams = request.nextUrl.searchParams;
+  const low_stock = searchParams.get("low_stock");
 
-    let query = db("inventory_items").select("*").where("is_active", true);
+  const filter: Record<string, any> = { is_active: true };
 
-    if (low_stock === "true") {
-      query = query.whereRaw("quantity <= reorder_level");
-    }
-
-    const items = await query.orderBy("sku");
-    return NextResponse.json(items);
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Internal server error" },
-      { status: 500 }
-    );
+  if (low_stock === "true") {
+    filter.$expr = { $lte: ["$quantity", { $ifNull: ["$reorder_level", 0] }] };
   }
-}
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const [item] = await db("inventory_items").insert(body).returning("*");
-    return NextResponse.json(item, { status: 201 });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  }
-}
+  const items = await InventoryItem.find(filter).sort({ sku: 1 });
+  return NextResponse.json(items);
+});
+
+export const POST = withDB(async (request: NextRequest) => {
+  const body = await request.json();
+  const item = await InventoryItem.create(body);
+  return NextResponse.json(item, { status: 201 });
+});

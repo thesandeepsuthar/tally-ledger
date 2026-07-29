@@ -1,33 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/db/knex";
+import { withDB } from "@/lib/api-handler";
+import { Account } from "@/db/models/Account";
 
-export async function GET(request: NextRequest) {
-  try {
-    const searchParams = request.nextUrl.searchParams;
-    const type = searchParams.get("type");
+export const GET = withDB(async (request: NextRequest) => {
+  const searchParams = request.nextUrl.searchParams;
+  const type = searchParams.get("type");
 
-    let query = db("accounts").select("*").where("is_active", true).orderBy("code");
-
-    if (type) {
-      query = query.where("type", type);
-    }
-
-    const accounts = await query;
-    return NextResponse.json(accounts);
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Internal server error" },
-      { status: 500 }
-    );
+  const filter: Record<string, any> = { is_active: true };
+  if (type) {
+    filter.type = type;
   }
-}
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const [account] = await db("accounts").insert(body).returning("*");
-    return NextResponse.json(account, { status: 201 });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  }
-}
+  const accounts = await Account.find(filter).sort({ code: 1 });
+  return NextResponse.json(accounts);
+});
+
+export const POST = withDB(async (request: NextRequest) => {
+  const body = await request.json();
+  const account = await Account.create(body);
+  return NextResponse.json(account, { status: 201 });
+});

@@ -1,7 +1,9 @@
-import db from "@/db/knex";
-import { Knex } from "knex";
+import mongoose, { ClientSession, Types } from "mongoose";
+import { Transaction } from "@/db/models/Transaction";
+import { LedgerEntry } from "@/db/models/LedgerEntry";
+import { Account } from "@/db/models/Account";
 
-export interface LedgerEntry {
+export interface LedgerEntryInput {
   account_id: string;
   entry_type: "debit" | "credit";
   amount: number;
@@ -14,12 +16,12 @@ export interface TransactionRequest {
   description?: string;
   reference_number?: string;
   transaction_date?: Date;
-  entries: LedgerEntry[];
+  entries: LedgerEntryInput[];
   metadata?: Record<string, any>;
 }
 
 export class LedgerService {
-  static async validateDoubleEntry(entries: LedgerEntry[]): Promise<void> {
+  static async validateDoubleEntry(entries: LedgerEntryInput[]): Promise<void> {
     let debitTotal = 0;
     let creditTotal = 0;
 
@@ -40,59 +42,46 @@ export class LedgerService {
 
   static async createTransaction(
     request: TransactionRequest,
-    trx?: Knex.Transaction
+    session?: ClientSession
   ): Promise<any> {
-    const transaction = async (tx: Knex.Transaction) => {
-      const existing = await tx("transactions")
-        .where("idempotency_key", request.idempotency_key)
-        .first();
+    const sessionOption = session ? { session } : {};
 
-      if (existing) {
-        const entries = await tx("ledger_entries")
-          .where("transaction_id", existing.id)
-          .orderBy("created_at");
-        return { transaction: existing, entries };
-      }
-
-      await this.validateDoubleEntry(request.entries);
-
-      const [transactionRecord] = await tx("transactions")
-        .insert({
-          idempotency_key: request.idempotency_key,
-          transaction_type: request.transaction_type,
-          description: request.description,
-          reference_number: request.reference_number,
-          transaction_date: request.transaction_date || new Date(),
-          status: "completed",
-          metadata: request.metadata ? JSON.stringify(request.metadata) : null,
-        })
-        .returning("*");
-
-      const ledgerEntries = await Promise.all(
-        request.entries.map((entry) =>
-          tx("ledger_entries")
-            .insert({
-              transaction_id: transactionRecord.id,
-              account_id: entry.account_id,
-              entry_type: entry.entry_type,
-              amount: entry.amount,
-              description: entry.description,
-            })
-            .returning("*")
-        )
-      );
-
-      return {
-        transaction: transactionRecord,
-        entries: ledgerEntries.flat(),
-      };
-    };
-
-    if (trx) {
-      return transaction(trx);
+    const existing = await Transaction.findOne({ idempotency_key: request.idempotency_key }, null, sessionOption);
+    if (existing) {
+      const entries = await LedgerEntry.find({ transaction_id: existing._id }, null, sessionOption).sort({ createdAt: 1 });
+      return { transaction: existing, entries };
     }
 
-    return db.transaction(transaction);
+    await this.validateDoubleEntry(request.entries);
+
+    const [transactionRecord] = await Transaction.create(
+      [{
+        idempotency_key: request.idempotency_key,
+        transaction_type: request.transaction_type,
+        description: request.description,
+        reference_number: request.reference_number,
+        transaction_date: request.transaction_date || new Date(),
+        status: "completed",
+        metadata: request.metadata,
+      }],
+      sessionOption
+    );
+
+    const ledgerEntries = await LedgerEntry.create(
+      request.entries.map((entry) => ({
+        transaction_id: transactionRecord._id,
+        account_id: new Types.ObjectId(entry.account_id),
+        entry_type: entry.entry_type,
+        amount: entry.amount,
+        description: entry.description,
+      })),
+      sessionOption
+    );
+
+    return {
+      transaction: transactionRecord,
+      entries: ledgerEntries,
+    };
   }
 
   static async getLedgerEntries(filters: {
@@ -104,50 +93,80 @@ export class LedgerService {
   }): Promise<any> {
     const { account_id, start_date, end_date, page = 1, limit = 50 } = filters;
 
-    let query = db("ledger_entries as le")
-      .join("transactions as t", "le.transaction_id", "t.id")
-      .join("accounts as a", "le.account_id", "a.id")
-      .select(
-        "le.id",
-        "le.transaction_id",
-        "le.entry_type",
-        "le.amount",
-        "le.description as entry_description",
-        "le.created_at",
-        "t.transaction_type",
-        "t.transaction_number",
-        "t.transaction_date",
-        "t.description as transaction_description",
-        "a.code as account_code",
-        "a.name as account_name",
-        "a.type as account_type"
-      );
+    const transCol = Transaction.collection.name;
+    const accCol = Account.collection.name;
 
+    const pipeline: any[] = [];
+
+    pipeline.push(
+      {
+        $lookup: {
+          from: transCol,
+          localField: "transaction_id",
+          foreignField: "_id",
+          as: "transaction",
+        },
+      },
+      { $unwind: "$transaction" },
+      {
+        $lookup: {
+          from: accCol,
+          localField: "account_id",
+          foreignField: "_id",
+          as: "account",
+        },
+      },
+      { $unwind: "$account" }
+    );
+
+    const matchFilter: any = {};
     if (account_id) {
-      query = query.where("le.account_id", account_id);
+      matchFilter["account._id"] = new Types.ObjectId(account_id);
+    }
+    if (start_date || end_date) {
+      matchFilter["transaction.transaction_date"] = {};
+      if (start_date) matchFilter["transaction.transaction_date"].$gte = start_date;
+      if (end_date) matchFilter["transaction.transaction_date"].$lte = end_date;
+    }
+    if (Object.keys(matchFilter).length > 0) {
+      pipeline.push({ $match: matchFilter });
     }
 
-    if (start_date) {
-      query = query.where("t.transaction_date", ">=", start_date);
-    }
+    const countResult = await LedgerEntry.aggregate([...pipeline, { $count: "total" }]);
+    const total = countResult[0]?.total ?? 0;
 
-    if (end_date) {
-      query = query.where("t.transaction_date", "<=", end_date);
-    }
+    pipeline.push(
+      { $sort: { "transaction.transaction_date": -1, createdAt: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      {
+        $project: {
+          id: "$_id",
+          _id: 0,
+          transaction_id: 1,
+          entry_type: 1,
+          amount: 1,
+          entry_description: { $ifNull: ["$description", ""] },
+          created_at: "$createdAt",
+          transaction_type: "$transaction.transaction_type",
+          transaction_number: "$transaction.transaction_number",
+          transaction_date: "$transaction.transaction_date",
+          transaction_description: "$transaction.description",
+          account_code: "$account.code",
+          account_name: "$account.name",
+          account_type: "$account.type",
+        },
+      }
+    );
 
-    const total = await query.clone().clearSelect().count("* as count").first();
-    const entries = await query
-      .orderBy("t.transaction_date", "desc")
-      .orderBy("le.created_at", "desc")
-      .limit(limit)
-      .offset((page - 1) * limit);
+    const entries = await LedgerEntry.aggregate(pipeline);
 
     let runningBalance = 0;
     const entriesWithBalance = entries.map((entry: any) => {
       if (entry.entry_type === "debit") {
-        runningBalance += parseFloat(entry.amount);
+        runningBalance += entry.amount;
       } else {
-        runningBalance -= parseFloat(entry.amount);
+        runningBalance -= entry.amount;
       }
       return {
         ...entry,
@@ -160,8 +179,8 @@ export class LedgerService {
       pagination: {
         page,
         limit,
-        total: parseInt(total?.count as string) || 0,
-        pages: Math.ceil((parseInt(total?.count as string) || 0) / limit),
+        total,
+        pages: Math.ceil(total / limit),
       },
     };
   }

@@ -1,6 +1,6 @@
-# Tally Ledger - PostgreSQL API with Knex
+# Tally Ledger - MongoDB API with Mongoose
 
-A Next.js application with PostgreSQL database integration using Knex.js query builder.
+A Next.js application with MongoDB database integration using Mongoose ODM.
 
 ## Setup
 
@@ -10,22 +10,16 @@ npm install
 ```
 
 2. **Configure environment variables:**
-   - Copy `.env.example` to `.env.local`
-   - Update with your PostgreSQL credentials
+   - Update `.env` with your MongoDB connection string
 
-3. **Create database:**
-```bash
-createdb tally_ledger
-```
-
-4. **Run migrations:**
-```bash
-npm run migrate:latest
-```
-
-5. **Start development server:**
+3. **Start development server:**
 ```bash
 npm run dev
+```
+
+4. **Seed initial data (optional):**
+```bash
+npm run seed
 ```
 
 ## API Endpoints
@@ -54,15 +48,11 @@ curl -X POST http://localhost:8002/api/transactions \
 
 ## Database Scripts
 
-- `npm run migrate:make <name>` - Create new migration
-- `npm run migrate:latest` - Run all pending migrations
-- `npm run migrate:rollback` - Rollback last migration batch
-- `npm run seed:make <name>` - Create new seed file
-- `npm run seed:run` - Run all seed files
+- `npm run seed` - Seed database with initial chart of accounts and inventory items
 
 ## Tech Stack
 
 - **Framework:** Next.js 16
-- **Database:** PostgreSQL
-- **Query Builder:** Knex.js
+- **Database:** MongoDB
+- **ODM:** Mongoose
 - **Language:** TypeScript
