@@ -75,7 +75,7 @@ export class LedgerService {
         amount: entry.amount,
         description: entry.description,
       })),
-      sessionOption
+      { ...sessionOption, ordered: true }
     );
 
     return {
